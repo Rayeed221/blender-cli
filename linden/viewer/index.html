@@ -24,8 +24,18 @@
   #knob { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%;
     background: rgba(246,241,234,.85); box-shadow: 0 4px 14px rgba(0,0,0,.35); transition: transform .12s ease-out; }
   #stick.active #knob { transition: none; }
-  .hint { position: fixed; right: 16px; bottom: calc(env(safe-area-inset-bottom) + 30px); font-size: 12px; color: var(--muted);
+  .hint { position: fixed; right: 16px; bottom: calc(env(safe-area-inset-bottom) + 150px); font-size: 12px; color: var(--muted);
     text-align: right; line-height: 1.5; pointer-events: none; transition: opacity .6s; text-shadow: 0 1px 8px rgba(0,0,0,.5); }
+  .bar2 { position: fixed; left: 0; right: 0; top: calc(env(safe-area-inset-top) + 146px); display: flex; gap: 6px;
+    padding: 0 12px; overflow-x: auto; scrollbar-width: none; }
+  .bar2::-webkit-scrollbar { display: none; }
+  .chip { flex: none; font-family: inherit; font-size: 11px; font-weight: 600; line-height: 1; letter-spacing: .08em; text-transform: uppercase; color: var(--ink);
+    padding: 9px 12px; border-radius: 999px; background: var(--glass); border: 1px solid var(--line);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); cursor: pointer; }
+  .chip.on { background: var(--accent); color: #1c1a17; border-color: var(--accent); }
+  .modes { position: fixed; right: 12px; bottom: calc(env(safe-area-inset-bottom) + 26px); display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
+  body.orbit #stick, body.orbit .hint { display: none; }
+  body:not(.orbit) #roofBtn { display: none; }
   #loading { position: fixed; inset: 0; display: grid; place-items: center; background: #1c1a17; transition: opacity .6s; z-index: 5; }
   #loading .box { text-align: center; }
   #loading .t { font-size: 13px; letter-spacing: .2em; text-transform: uppercase; }
@@ -42,13 +52,27 @@
 <div class="brand"><div class="name">Fennrow Homes <b>•</b> The Linden</div><div class="room" id="room"></div></div>
 <canvas id="map" width="224" height="248" aria-label="Plan with your position"></canvas>
 <div id="stick" aria-label="Walk"><div id="knob"></div></div>
-<div class="hint" id="hint">Joystick to walk<br>Drag to look around</div>
+<div class="hint" id="hint">Joystick to walk · drag to look<br>Tap the plan to jump there</div>
+<div class="bar2" id="views">
+  <button class="chip" data-view="living">Living</button>
+  <button class="chip" data-view="kitchen">Kitchen</button>
+  <button class="chip" data-view="dining">Dining</button>
+  <button class="chip" data-view="patio">Patio</button>
+  <button class="chip" data-view="bed2">Bed 2</button>
+  <button class="chip" data-view="aerial">Outside</button>
+  <button class="chip" data-view="dollhouse">Dollhouse</button>
+</div>
+<div class="modes">
+  <button class="chip" id="roofBtn">Roof off</button>
+  <button class="chip on" id="modeBtn">Walk ▸ Orbit</button>
+</div>
 <div id="loading"><div class="box"><div class="t">The Linden</div><div class="bar"><i id="bar"></i></div><div class="err" id="err"></div></div></div>
 
 <script type="module">
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 const $ = (id) => document.getElementById(id);
 const fail = (m) => { $('err').textContent = m; };
@@ -85,6 +109,8 @@ camera.rotation.order = 'YXZ';
 
 // ---------------------------------------------------------------- data
 let world = null;     // colliders.json
+const roofMeshes = [];
+let mode = 'walk';
 const P = { x: 7, y: 8, yaw: 0, pitch: -0.05 };   // plan coords (m), yaw 0 = looking north
 
 async function load() {
@@ -95,10 +121,12 @@ async function load() {
   P.yaw = THREE.MathUtils.degToRad(35);
   drawMapBase();
   const draco = new DRACOLoader().setDecoderPath('./vendor/draco/');
+  draco.setDecoderConfig({ type: 'js' });   // plain-JS decoder: works where WebAssembly is restricted
   const loader = new GLTFLoader().setDRACOLoader(draco);
   const gltf = await loader.loadAsync('linden.glb', (e) => { if (e.total) $('bar').style.width = (100 * e.loaded / e.total) + '%'; });
   gltf.scene.traverse((o) => {
     if (!o.isMesh) return;
+    if (o.name.startsWith('LM_ceilings')) roofMeshes.push(o);
     const src = o.material;
     if (o.name.startsWith('Glass')) {
       o.material = new THREE.MeshBasicMaterial({ color: 0xdfe9ec, transparent: true, opacity: 0.12, depthWrite: false, side: THREE.DoubleSide });
@@ -130,7 +158,7 @@ const stickEnd = (e) => { if (e.pointerId !== stick.id) return; stick.id = null;
 stickEl.addEventListener('pointerup', stickEnd); stickEl.addEventListener('pointercancel', stickEnd);
 
 const glEl = $('gl');
-glEl.addEventListener('pointerdown', (e) => { if (look.id !== null) return; look.id = e.pointerId; look.lx = e.clientX; look.ly = e.clientY; glEl.setPointerCapture(e.pointerId); hideHint(); });
+glEl.addEventListener('pointerdown', (e) => { if (mode !== 'walk' || look.id !== null) return; look.id = e.pointerId; look.lx = e.clientX; look.ly = e.clientY; glEl.setPointerCapture(e.pointerId); hideHint(); });
 glEl.addEventListener('pointermove', (e) => {
   if (e.pointerId !== look.id) return;
   const k = 2.6 / Math.max(innerWidth, innerHeight) * 1.6;
@@ -180,13 +208,14 @@ function roomAt(x, y) {
 
 // ---------------------------------------------------------------- minimap
 const map = $('map'), mctx = map.getContext('2d');
-let mapBase = null, mapT = null;
+let mapBase = null, mapT = null, mapInv = null;
 function drawMapBase() {
   const xs = world.rooms.flatMap((r) => r.polygon.map((p) => p[0])), ys = world.rooms.flatMap((r) => r.polygon.map((p) => p[1]));
   const minX = Math.min(...xs) - 0.4, maxX = Math.max(...xs) + 0.4, minY = Math.min(...ys) - 0.4, maxY = Math.max(...ys) + 0.4;
   const s = Math.min((map.width - 16) / (maxX - minX), (map.height - 16) / (maxY - minY));
   const ox = (map.width - (maxX - minX) * s) / 2, oy = (map.height - (maxY - minY) * s) / 2;
   mapT = (x, y) => [ox + (x - minX) * s, map.height - oy - (y - minY) * s];
+  mapInv = (u, v) => [minX + (u - ox) / s, minY + (map.height - oy - v) / s];
   const c = document.createElement('canvas'); c.width = map.width; c.height = map.height;
   const g = c.getContext('2d');
   for (const r of world.rooms) {
@@ -219,6 +248,64 @@ function drawMap() {
   mctx.beginPath(); mctx.arc(u, v, 6, 0, Math.PI * 2); mctx.fill(); mctx.stroke();
 }
 
+// ---------------------------------------------------------------- orbit mode, preset views, minimap tap
+const orbit = new OrbitControls(camera, glEl);
+orbit.enabled = false;
+orbit.enableDamping = true;
+orbit.target.set(5.9, 1.2, -6.2);
+orbit.minDistance = 3; orbit.maxDistance = 60;
+orbit.maxPolarAngle = Math.PI * 0.49;
+function setRoof(on) {
+  roofMeshes.forEach((m) => { m.visible = on; });
+  $('roofBtn').textContent = on ? 'Roof off' : 'Roof on';
+  $('roofBtn').classList.toggle('on', !on);
+}
+let walkSaved = null;
+function setMode(m) {
+  if (m === mode) return;
+  if (m === 'orbit') walkSaved = { x: P.x, y: P.y, yaw: P.yaw, pitch: P.pitch };
+  else if (walkSaved) Object.assign(P, walkSaved);
+  mode = m;
+  document.body.classList.toggle('orbit', m === 'orbit');
+  $('modeBtn').textContent = m === 'walk' ? 'Walk ▸ Orbit' : 'Orbit ▸ Walk';
+  orbit.enabled = m === 'orbit';
+  if (m === 'walk') { setRoof(true); camera.rotation.order = 'YXZ'; }
+}
+$('modeBtn').addEventListener('click', () => {
+  if (mode === 'walk') { setMode('orbit'); flyOrbit([-8, 16, 14]); } else setMode('walk');
+  markChip(null);
+});
+$('roofBtn').addEventListener('click', () => setRoof(!roofMeshes[0]?.visible));
+function flyOrbit(pos, roofOn = true) {
+  camera.position.set(pos[0], pos[1], pos[2]);
+  orbit.target.set(5.9, 1.2, -6.2);
+  orbit.update(); setRoof(roofOn);
+}
+// walk presets: plan position + yaw (0 = north, +90 deg = east)
+const VIEWS = {
+  living:  { x: 6.0, y: 8.0, yaw: 32, pitch: -4 },
+  kitchen: { x: 3.9, y: 6.3, yaw: -68, pitch: -8 },
+  dining:  { x: 8.6, y: 5.7, yaw: -56, pitch: -6 },
+  patio:   { x: 8.3, y: -0.45, yaw: -112, pitch: -10 },
+  bed2:    { x: 8.4, y: 1.0, yaw: -60, pitch: -6 },
+};
+function markChip(v) { document.querySelectorAll('#views .chip').forEach((c) => c.classList.toggle('on', c.dataset.view === v)); }
+document.querySelectorAll('#views .chip').forEach((c) => c.addEventListener('click', () => {
+  const v = c.dataset.view; markChip(v); hideHint();
+  if (v === 'aerial') { setMode('orbit'); flyOrbit([-9, 9, 15]); return; }
+  if (v === 'dollhouse') { setMode('orbit'); flyOrbit([2, 19, 9], false); return; }
+  const p = VIEWS[v]; setMode('walk');
+  [P.x, P.y] = collide(p.x, p.y);
+  P.yaw = THREE.MathUtils.degToRad(p.yaw); P.pitch = THREE.MathUtils.degToRad(p.pitch);
+}));
+map.addEventListener('pointerdown', (e) => {
+  if (!mapInv) return;
+  const r = map.getBoundingClientRect();
+  const [x, y] = mapInv((e.clientX - r.left) * map.width / r.width, (e.clientY - r.top) * map.height / r.height);
+  setMode('walk'); markChip(null); hideHint();
+  [P.x, P.y] = collide(x, y);
+});
+
 // ---------------------------------------------------------------- loop
 function resize() {
   const w = innerWidth, h = innerHeight;
@@ -230,7 +317,17 @@ addEventListener('resize', resize); resize();
 let last = performance.now(), lastRoom = null;
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
-  if (world) {
+  if (world && mode === 'orbit') {
+    orbit.update();
+    scene.userData.sky.position.copy(camera.position);
+    const t = orbit.target;
+    if ($('room').textContent !== 'Outside') $('room').textContent = 'Outside';
+    lastRoom = null;
+    // the map dot follows the orbit camera's ground position
+    P.x = camera.position.x; P.y = -camera.position.z;
+    P.yaw = Math.atan2(t.x - camera.position.x, -(t.z - camera.position.z));
+    drawMap();
+  } else if (world) {
     let fx = -stick.y, sx = stick.x;
     if (keys['w'] || keys['arrowup']) fx += 1; if (keys['s'] || keys['arrowdown']) fx -= 1;
     if (keys['a'] || keys['arrowleft']) sx -= 1; if (keys['d'] || keys['arrowright']) sx += 1;
