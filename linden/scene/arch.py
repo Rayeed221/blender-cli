@@ -3,7 +3,7 @@ windows, doors, railings and planters. Imported by build_scene.py (runs inside B
 import math
 import bmesh
 import bpy
-from mathutils import Vector
+from mathutils import Matrix, Vector
 
 from mats import M
 
@@ -133,6 +133,9 @@ def build_shell(plan, root):
     m2.collection = cut
     m2.solver = "EXACT"
     apply_mods(shell)
+    # the shell inherited the first wall box's origin: bake it so mesh coords are world coords
+    shell.data.transform(shell.matrix_world)
+    shell.matrix_world = Matrix.Identity(4)
     for c_ in (parts, cut):
         for o in list(c_.objects):
             me = o.data
@@ -173,9 +176,17 @@ def classify_shell_faces(shell, plan):
         if abs(nz) > 0.5:
             f.material_index = 2
             continue
-        c = f.center + f.normal * 0.12
-        in_room = any(inside((c.x, c.y), r["polygon"]) for r in indoor)
-        f.material_index = 0 if (in_room and c.z < 3.02) else 1
+        # merged faces can span columns/doorways, so test the centre and points pulled from
+        # each corner toward it; any sample just in front of the face inside a room = interior
+        cen = f.center
+        samples = [cen] + [me.vertices[v].co.lerp(cen, 0.15) for v in f.vertices]
+        in_room = False
+        for q in samples:
+            c = q + f.normal * 0.12
+            if c.z < 3.02 and any(inside((c.x, c.y), r["polygon"]) for r in indoor):
+                in_room = True
+                break
+        f.material_index = 0 if in_room else 1
 
 
 # ---------------------------------------------------------------------- floors, ceilings, roof
