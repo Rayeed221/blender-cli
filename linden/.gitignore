@@ -1,0 +1,9 @@
+# client reference deck and page rasters stay local (large, not needed to rebuild)
+ref/design.pdf
+ref/pages/
+ref/p2-*.png
+# intermediate renders / bakes
+out/tests/
+out/viewer_test/
+out/frames/
+bake/

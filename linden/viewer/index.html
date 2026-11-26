@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#1c1a17">
+<title>The Linden Walkthrough</title>
+<style>
+  :root { --ink: #f6f1ea; --muted: rgba(246,241,234,.72); --glass: rgba(28,26,23,.46); --line: rgba(246,241,234,.22); --accent: #e8b46a; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1c1a17; color: var(--ink);
+    font-family: "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif; overscroll-behavior: none; touch-action: none; user-select: none; -webkit-user-select: none; }
+  canvas#gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  .brand { position: fixed; top: calc(env(safe-area-inset-top) + 14px); left: 16px; max-width: calc(100% - 156px); pointer-events: none;
+    text-shadow: 0 1px 10px rgba(0,0,0,.45); }
+  .brand .name { font-size: 14px; line-height: 1.35; letter-spacing: .14em; text-transform: uppercase; font-weight: 600; }
+  .brand .name b { color: var(--accent); font-weight: 600; }
+  .brand .room { margin-top: 4px; font-size: 12px; letter-spacing: .08em; color: var(--muted); }
+  #map { position: fixed; top: calc(env(safe-area-inset-top) + 12px); right: 12px; width: 112px; height: 124px;
+    border-radius: 12px; background: var(--glass); border: 1px solid var(--line); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+  #stick { position: fixed; left: calc(env(safe-area-inset-left) + 22px); bottom: calc(env(safe-area-inset-bottom) + 26px);
+    width: 128px; height: 128px; border-radius: 50%; background: var(--glass); border: 1px solid var(--line);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); touch-action: none; }
+  #knob { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%;
+    background: rgba(246,241,234,.85); box-shadow: 0 4px 14px rgba(0,0,0,.35); transition: transform .12s ease-out; }
+  #stick.active #knob { transition: none; }
+  .hint { position: fixed; right: 16px; bottom: calc(env(safe-area-inset-bottom) + 30px); font-size: 12px; color: var(--muted);
+    text-align: right; line-height: 1.5; pointer-events: none; transition: opacity .6s; text-shadow: 0 1px 8px rgba(0,0,0,.5); }
+  #loading { position: fixed; inset: 0; display: grid; place-items: center; background: #1c1a17; transition: opacity .6s; z-index: 5; }
+  #loading .box { text-align: center; }
+  #loading .t { font-size: 13px; letter-spacing: .2em; text-transform: uppercase; }
+  #loading .bar { margin: 14px auto 0; width: 160px; height: 2px; background: var(--line); overflow: hidden; }
+  #loading .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  #loading .err { margin-top: 14px; font-size: 12px; color: #f0a08a; max-width: 280px; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.min.js", "three/addons/": "./vendor/jsm/" } }
+</script>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div class="brand"><div class="name">Fennrow Homes <b>•</b> The Linden</div><div class="room" id="room"></div></div>
+<canvas id="map" width="224" height="248" aria-label="Plan with your position"></canvas>
+<div id="stick" aria-label="Walk"><div id="knob"></div></div>
+<div class="hint" id="hint">Joystick to walk<br>Drag to look around</div>
+<div id="loading"><div class="box"><div class="t">The Linden</div><div class="bar"><i id="bar"></i></div><div class="err" id="err"></div></div></div>
+
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+
+const $ = (id) => document.getElementById(id);
+const fail = (m) => { $('err').textContent = m; };
+
+// ---------------------------------------------------------------- renderer / scene
+const renderer = new THREE.WebGLRenderer({ canvas: $('gl'), antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.NoToneMapping;          // lighting + AgX are baked into the textures
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 300);
+camera.rotation.order = 'YXZ';
+
+// golden-hour sky dome (gradient matching the baked sky)
+{
+  const g = new THREE.SphereGeometry(150, 32, 16);
+  const m = new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false,
+    uniforms: { sun: { value: new THREE.Vector3() } },
+    vertexShader: 'varying vec3 v; void main(){ v = normalize(position); gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
+    fragmentShader: `varying vec3 v; uniform vec3 sun;
+      void main(){ float h = clamp(v.y, -0.2, 1.0);
+        vec3 zen = vec3(0.36,0.52,0.74), hor = vec3(0.98,0.80,0.58), low = vec3(0.62,0.58,0.54);
+        vec3 c = mix(hor, zen, pow(max(h,0.), .55)); if (h < 0.) c = mix(hor, low, min(1., -h*6.));
+        float s = max(dot(normalize(v), normalize(sun)), 0.); c += vec3(1.,.72,.42) * (pow(s, 12.)*.35 + pow(s, 900.)*2.);
+        gl_FragColor = vec4(c, 1.); }`
+  });
+  // sun: bearing 305 deg, 9 deg up; plan (+X east, +Y north) -> three (x, z = -y)
+  const az = THREE.MathUtils.degToRad(305), el = THREE.MathUtils.degToRad(9);
+  m.uniforms.sun.value.set(Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el));
+  const sky = new THREE.Mesh(g, m); sky.renderOrder = -1; sky.frustumCulled = false;
+  scene.add(sky); scene.userData.sky = sky;
+}
+
+// ---------------------------------------------------------------- data
+let world = null;     // colliders.json
+const P = { x: 7, y: 8, yaw: 0, pitch: -0.05 };   // plan coords (m), yaw 0 = looking north
+
+async function load() {
+  const res = await fetch('colliders.json');
+  if (!res.ok) throw new Error('colliders.json: ' + res.status);
+  world = await res.json();
+  P.x = world.spawn[0]; P.y = world.spawn[1];
+  P.yaw = THREE.MathUtils.degToRad(35);
+  drawMapBase();
+  const draco = new DRACOLoader().setDecoderPath('./vendor/draco/');
+  const loader = new GLTFLoader().setDRACOLoader(draco);
+  const gltf = await loader.loadAsync('linden.glb', (e) => { if (e.total) $('bar').style.width = (100 * e.loaded / e.total) + '%'; });
+  gltf.scene.traverse((o) => {
+    if (!o.isMesh) return;
+    const src = o.material;
+    if (o.name.startsWith('Glass')) {
+      o.material = new THREE.MeshBasicMaterial({ color: 0xdfe9ec, transparent: true, opacity: 0.12, depthWrite: false, side: THREE.DoubleSide });
+      o.renderOrder = 2;
+    } else {
+      const map = src.map; if (map) { map.colorSpace = THREE.SRGBColorSpace; map.anisotropy = 4; }
+      o.material = new THREE.MeshBasicMaterial({ map });
+    }
+  });
+  scene.add(gltf.scene);
+  $('loading').style.opacity = 0; setTimeout(() => $('loading').remove(), 700);
+}
+
+// ---------------------------------------------------------------- input: joystick + drag-look
+const stick = { id: null, x: 0, y: 0 };
+const look = { id: null, lx: 0, ly: 0 };
+const stickEl = $('stick'), knob = $('knob');
+function stickMove(e) {
+  const r = stickEl.getBoundingClientRect();
+  let dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+  const max = r.width / 2 - 14, d = Math.hypot(dx, dy);
+  if (d > max) { dx *= max / d; dy *= max / d; }
+  stick.x = dx / max; stick.y = dy / max;
+  knob.style.transform = `translate(${dx}px, ${dy}px)`;
+}
+stickEl.addEventListener('pointerdown', (e) => { stick.id = e.pointerId; stickEl.setPointerCapture(e.pointerId); stickEl.classList.add('active'); stickMove(e); hideHint(); });
+stickEl.addEventListener('pointermove', (e) => { if (e.pointerId === stick.id) stickMove(e); });
+const stickEnd = (e) => { if (e.pointerId !== stick.id) return; stick.id = null; stick.x = stick.y = 0; knob.style.transform = ''; stickEl.classList.remove('active'); };
+stickEl.addEventListener('pointerup', stickEnd); stickEl.addEventListener('pointercancel', stickEnd);
+
+const glEl = $('gl');
+glEl.addEventListener('pointerdown', (e) => { if (look.id !== null) return; look.id = e.pointerId; look.lx = e.clientX; look.ly = e.clientY; glEl.setPointerCapture(e.pointerId); hideHint(); });
+glEl.addEventListener('pointermove', (e) => {
+  if (e.pointerId !== look.id) return;
+  const k = 2.6 / Math.max(innerWidth, innerHeight) * 1.6;
+  // grab-the-scene, like Street View: drag left and the view turns right
+  P.yaw -= (e.clientX - look.lx) * k; P.pitch += (e.clientY - look.ly) * k;
+  P.pitch = Math.max(-1.25, Math.min(1.25, P.pitch));
+  look.lx = e.clientX; look.ly = e.clientY;
+});
+const lookEnd = (e) => { if (e.pointerId === look.id) look.id = null; };
+glEl.addEventListener('pointerup', lookEnd); glEl.addEventListener('pointercancel', lookEnd);
+// desktop: WASD / arrows
+const keys = {};
+addEventListener('keydown', (e) => { keys[e.key.toLowerCase()] = true; hideHint(); });
+addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
+let hintHidden = false;
+function hideHint() { if (!hintHidden) { hintHidden = true; $('hint').style.opacity = 0; } }
+
+// ---------------------------------------------------------------- collision (circle vs rects, plan space)
+function collide(x, y) {
+  const r = world.radius;
+  for (let it = 0; it < 3; it++) {
+    for (const [x0, y0, x1, y1] of world.rects) {
+      const cx = Math.max(x0, Math.min(x, x1)), cy = Math.max(y0, Math.min(y, y1));
+      const dx = x - cx, dy = y - cy, d2 = dx * dx + dy * dy;
+      if (d2 >= r * r) continue;
+      if (d2 > 1e-10) { const d = Math.sqrt(d2), push = (r - d) / d; x += dx * push; y += dy * push; }
+      else { // centre inside the rect: leave by the nearest side
+        const opts = [[x0 - r - x, 0], [x1 + r - x, 0], [0, y0 - r - y], [0, y1 + r - y]];
+        opts.sort((a, b) => Math.abs(a[0] + a[1]) - Math.abs(b[0] + b[1]));
+        x += opts[0][0]; y += opts[0][1];
+      }
+    }
+  }
+  return [x, y];
+}
+
+function roomAt(x, y) {
+  for (const r of world.rooms) {
+    let c = false; const p = r.polygon;
+    for (let i = 0, j = p.length - 1; i < p.length; j = i++) {
+      if ((p[i][1] > y) !== (p[j][1] > y) && x < (p[j][0] - p[i][0]) * (y - p[i][1]) / (p[j][1] - p[i][1]) + p[i][0]) c = !c;
+    }
+    if (c) return r.name;
+  }
+  return '';
+}
+
+// ---------------------------------------------------------------- minimap
+const map = $('map'), mctx = map.getContext('2d');
+let mapBase = null, mapT = null;
+function drawMapBase() {
+  const xs = world.rooms.flatMap((r) => r.polygon.map((p) => p[0])), ys = world.rooms.flatMap((r) => r.polygon.map((p) => p[1]));
+  const minX = Math.min(...xs) - 0.4, maxX = Math.max(...xs) + 0.4, minY = Math.min(...ys) - 0.4, maxY = Math.max(...ys) + 0.4;
+  const s = Math.min((map.width - 16) / (maxX - minX), (map.height - 16) / (maxY - minY));
+  const ox = (map.width - (maxX - minX) * s) / 2, oy = (map.height - (maxY - minY) * s) / 2;
+  mapT = (x, y) => [ox + (x - minX) * s, map.height - oy - (y - minY) * s];
+  const c = document.createElement('canvas'); c.width = map.width; c.height = map.height;
+  const g = c.getContext('2d');
+  for (const r of world.rooms) {
+    g.beginPath(); r.polygon.forEach((p, i) => { const [u, v] = mapT(p[0], p[1]); i ? g.lineTo(u, v) : g.moveTo(u, v); });
+    g.closePath(); g.fillStyle = /Veranda|Patio|Utility/.test(r.name) ? 'rgba(232,180,106,.18)' : 'rgba(246,241,234,.10)'; g.fill();
+  }
+  g.strokeStyle = 'rgba(246,241,234,.85)'; g.lineCap = 'butt';
+  for (const w of world.walls) {
+    const [a, b] = [mapT(...w.a), mapT(...w.b)];
+    g.lineWidth = Math.max(1.5, w.t * s); g.beginPath(); g.moveTo(...a); g.lineTo(...b); g.stroke();
+  }
+  // openings punched back out of the wall strokes
+  for (const o of world.openings) {
+    const [a, b] = [mapT(...o.a), mapT(...o.b)];
+    g.lineWidth = 0.32 * s; g.strokeStyle = o.type.includes('window') ? 'rgba(140,190,220,.95)' : 'rgba(28,26,23,1)';
+    g.beginPath(); g.moveTo(...a); g.lineTo(...b); g.stroke();
+  }
+  mapBase = c;
+}
+function drawMap() {
+  mctx.clearRect(0, 0, map.width, map.height);
+  mctx.drawImage(mapBase, 0, 0);
+  const [u, v] = mapT(P.x, P.y);
+  // view cone
+  const a = -P.yaw + Math.PI / 2;  // plan angle of the view direction (canvas y is flipped)
+  mctx.fillStyle = 'rgba(232,180,106,.35)';
+  mctx.beginPath(); mctx.moveTo(u, v);
+  mctx.arc(u, v, 26, -a - 0.55, -a + 0.55); mctx.closePath(); mctx.fill();
+  mctx.fillStyle = '#e8b46a'; mctx.strokeStyle = '#1c1a17'; mctx.lineWidth = 2;
+  mctx.beginPath(); mctx.arc(u, v, 6, 0, Math.PI * 2); mctx.fill(); mctx.stroke();
+}
+
+// ---------------------------------------------------------------- loop
+function resize() {
+  const w = innerWidth, h = innerHeight;
+  renderer.setSize(w, h, false); camera.aspect = w / h;
+  camera.fov = w < h ? 74 : 60; camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize); resize();
+
+let last = performance.now(), lastRoom = null;
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  if (world) {
+    let fx = -stick.y, sx = stick.x;
+    if (keys['w'] || keys['arrowup']) fx += 1; if (keys['s'] || keys['arrowdown']) fx -= 1;
+    if (keys['a'] || keys['arrowleft']) sx -= 1; if (keys['d'] || keys['arrowright']) sx += 1;
+    const mag = Math.min(1, Math.hypot(fx, sx));
+    if (mag > 0.05) {
+      const speed = 1.5 * mag, n = Math.hypot(fx, sx);
+      fx /= n; sx /= n;
+      // yaw 0 looks north (+Y); positive yaw turns right (east)
+      const dx = (Math.sin(P.yaw) * fx + Math.cos(P.yaw) * sx) * speed * dt;
+      const dy = (Math.cos(P.yaw) * fx - Math.sin(P.yaw) * sx) * speed * dt;
+      // sub-steps so fast moves can't tunnel through thin walls
+      const steps = Math.ceil(Math.hypot(dx, dy) / 0.05) || 1;
+      for (let i = 0; i < steps; i++) [P.x, P.y] = collide(P.x + dx / steps, P.y + dy / steps);
+    }
+    camera.position.set(P.x, world.eye, -P.y);
+    camera.rotation.set(P.pitch, -P.yaw, 0);
+    scene.userData.sky.position.copy(camera.position);
+    const room = roomAt(P.x, P.y);
+    if (room !== lastRoom) { $('room').textContent = room; lastRoom = room; }
+    drawMap();
+  }
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+load().catch((e) => { console.error(e); fail('Could not load the model: ' + e.message + (location.protocol === 'file:' ? ' — open it through a local web server, not as a file.' : '')); });
+// test hook for automated checks
+window.__linden = { P, collide: (x, y) => collide(x, y), get world() { return world; } };
+</script>
+</body>
+</html>
