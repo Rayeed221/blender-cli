@@ -35,5 +35,9 @@ jobs:
         env:
           BLENDER_VERSION: ${{ matrix.blender }}
         run: npm test -- --blender "$RUNNER_TEMP/blender-${BLENDER_VERSION}-linux-x64/blender"
+      - name: Build example models
+        env:
+          BLENDER_BIN: ${{ runner.temp }}/blender-${{ matrix.blender }}-linux-x64/blender
+        run: node scripts/model.mjs build --all --formats glb,stl
       - name: Check package contents
         run: npm pack --dry-run

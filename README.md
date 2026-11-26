@@ -16,6 +16,14 @@
 npm install -g blender-cli && blender-cli doctor
 ```
 
+## Model workspace (this repository)
+
+Besides the CLI, this repo is set up to build 3D models as code: each model is a
+`models/<name>/build.py` using the [`modelkit`](./models/_lib/modelkit/__init__.py) helpers, and
+`npm run model -- build <name>` turns it into a `.blend`, a 4-view preview, an optional Cycles
+render and glb/fbx/obj/stl/usd exports in `build/<name>/`. `npm run setup:blender` installs a
+checksum-verified Blender 5.2.0 LTS. See [`models/README.md`](./models/README.md).
+
 ## New in v0.8.1
 
 - **Video on Blender 5.x.** `render --animation --out clip.mp4` (and `.mov`, `.webm`) works on Blender 5.x as well as 4.x.

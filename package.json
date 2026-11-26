@@ -7,7 +7,10 @@
     "blender-cli": "./blender-cli"
   },
   "scripts": {
-    "test": "node test/all.mjs"
+    "test": "node test/all.mjs",
+    "setup:blender": "bash scripts/install-blender.sh",
+    "model": "node scripts/model.mjs",
+    "models:build": "node scripts/model.mjs build --all"
   },
   "files": [
     "blender-cli",
