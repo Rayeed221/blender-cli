@@ -246,6 +246,91 @@ def exterior_render(name, base="#ddd5ca", joint="#b9b0a4", course=0.6):
     return t.mat
 
 
+def stars(name, base, star_strength=10.0, density=70.0):
+    """Fibre-optic star ceiling: tiny emissive points scattered over a matt ground."""
+    t = NT(name)
+    p = t.node("ShaderNodeBsdfPrincipled")
+    p.inputs["Base Color"].default_value = srgb(base)
+    p.inputs["Roughness"].default_value = 0.8
+    vor = t.node("ShaderNodeTexVoronoi")
+    vor.inputs["Scale"].default_value = density
+    vor.inputs["Randomness"].default_value = 1.0
+    t.link(t.coords(), vor.inputs["Vector"])
+    lt = t.node("ShaderNodeMath", operation="LESS_THAN")
+    lt.inputs[1].default_value = 0.045
+    t.link(vor.outputs["Distance"], lt.inputs[0])
+    # vary brightness per star
+    br = t.node("ShaderNodeMath", operation="MULTIPLY")
+    t.link(lt.outputs[0], br.inputs[0])
+    sep = t.node("ShaderNodeSeparateColor")
+    t.link(vor.outputs["Color"], sep.inputs[0])
+    t.link(sep.outputs[0], br.inputs[1])
+    em = t.node("ShaderNodeEmission")
+    em.inputs["Color"].default_value = (1.0, 0.93, 0.82, 1)
+    em.inputs["Strength"].default_value = star_strength
+    mix = t.node("ShaderNodeMixShader")
+    t.link(br.outputs[0], mix.inputs[0])
+    t.link(p.outputs[0], mix.inputs[1])
+    t.link(em.outputs[0], mix.inputs[2])
+    t.link(mix.outputs[0], t.out.inputs["Surface"])
+    t.mat.diffuse_color = srgb(base)
+    return t.mat
+
+
+def wall_tiles(name, base="#e4d9cb", vein="#d3c5b4", tile=(0.6, 1.2)):
+    """Large-format marble-look porcelain: veined base with fine grout joints."""
+    t = NT(name)
+    p = t.principled(base, 0.18)
+    co = t.coords()
+    n = t.node("ShaderNodeTexWave", wave_type="BANDS")
+    n.inputs["Scale"].default_value = 0.8
+    n.inputs["Distortion"].default_value = 16
+    n.inputs["Detail"].default_value = 8
+    t.link(co, n.inputs["Vector"])
+    col = t.ramp(n.outputs["Fac"], [(0.0, vein), (0.12, base), (0.88, base), (1.0, vein)])
+    sep = t.node("ShaderNodeSeparateXYZ")
+    t.link(co, sep.inputs[0])
+    joints = []
+    for axis, size in (("Z", tile[1]), ("X", tile[0]), ("Y", tile[0])):
+        d = t.node("ShaderNodeMath", operation="DIVIDE")
+        d.inputs[1].default_value = size
+        t.link(sep.outputs[axis], d.inputs[0])
+        fr = t.node("ShaderNodeMath", operation="FRACT")
+        t.link(d.outputs[0], fr.inputs[0])
+        lt = t.node("ShaderNodeMath", operation="LESS_THAN")
+        lt.inputs[1].default_value = 0.003 / size
+        t.link(fr.outputs[0], lt.inputs[0])
+        joints.append(lt)
+    m1 = t.node("ShaderNodeMath", operation="MAXIMUM")
+    t.link(joints[0].outputs[0], m1.inputs[0])
+    t.link(joints[1].outputs[0], m1.inputs[1])
+    m2 = t.node("ShaderNodeMath", operation="MAXIMUM")
+    t.link(m1.outputs[0], m2.inputs[0])
+    t.link(joints[2].outputs[0], m2.inputs[1])
+    mix = t.node("ShaderNodeMix", data_type="RGBA")
+    t.link(m2.outputs[0], mix.inputs[0])
+    t.link(col, mix.inputs[6])
+    mix.inputs[7].default_value = srgb("#a89a89")
+    t.link(mix.outputs[2], p.inputs["Base Color"])
+    return t.mat
+
+
+def wave_relief(name, color):
+    """Sculpted plaster panel: flowing vertical waves in the bump channel (photo p9)."""
+    t = NT(name)
+    p = t.principled(color, 0.7)
+    w = t.node("ShaderNodeTexWave", wave_type="BANDS", bands_direction="Y")
+    w.inputs["Scale"].default_value = 2.2
+    w.inputs["Distortion"].default_value = 4
+    t.link(t.coords(), w.inputs["Vector"])
+    b = t.node("ShaderNodeBump")
+    b.inputs["Strength"].default_value = 0.8
+    b.inputs["Distance"].default_value = 0.02
+    t.link(w.outputs["Fac"], b.inputs["Height"])
+    t.link(b.outputs[0], p.inputs["Normal"])
+    return t.mat
+
+
 def blackbody(k):
     # approximate sRGB->linear warm white for LED colour temperatures
     return {2700: (1.0, 0.62, 0.32, 1), 3000: (1.0, 0.70, 0.42, 1), 4000: (1.0, 0.82, 0.64, 1)}[k]
@@ -300,6 +385,27 @@ def make():
     M["throw"] = fabric("Throw taupe", "#9e8670")
     M["lamp_glow"] = emission("Lamp glow", blackbody(2700), 8.0)
     M["art"] = plain("Art print", "#c7a98a", 0.7)
+    M["wall_tile"] = wall_tiles("Marble wall tile")
+    M["dark_wall"] = plain("Dark mocha paint", "#4b423b", 0.8)
+    M["star_dark"] = stars("Star ceiling dark", "#2a2622", 14.0)
+    M["star_light"] = stars("Star ceiling light", "#efe8de", 6.0, 55.0)
+    M["white_gloss"] = plain("White gloss", "#f3f1ec", 0.2)
+    M["greige"] = plain("Greige lacquer", "#cdbfb0", 0.4)
+    M["fluted_grey"] = plain("Fluted grey", "#8d8780", 0.55)
+    M["mirror"] = plain("Mirror", "#e8ecee", 0.02, 1.0)
+    M["dark_wood"] = wood("Smoked oak", "#4a3a2f", "#30251d", rough=0.45)
+    M["dark_fabric"] = fabric("Charcoal fabric", "#4a4340")
+    M["grey_fabric"] = fabric("Dove grey fabric", "#b9b3ad")
+    M["tan_leather"] = fabric("Tan upholstery", "#c4a283", rough=0.7)
+    M["navy_rug"] = tiles("Prayer rug", "#283453", "#c9bfa8", 0.35, 0.95)
+    M["bronze_glass"] = thin_glass("Bronze glass", tint="#c9a888")
+    M["white_plastic"] = plain("Appliance white", "#f2f2f0", 0.35)
+    M["navy"] = fabric("Navy wool", "#26314d", rough=0.95, bump=0.3)
+    M["black_steel"] = plain("Black steel", "#232324", 0.3, 0.8)
+    M["wave_relief"] = wave_relief("Sculpted wave panel", "#d9c8b1")
+    M["art_kaaba"] = marble("Kaaba art", "#d7c7ad", "#3a3028", 2.2, 0.6)
+    M["art_leaf"] = marble("Leaf art", "#d9c7ae", "#5b3d2a", 1.6, 0.6)
+    M["rug_pattern"] = marble("Patterned rug", "#a69d92", "#5a524a", 2.5, 1.0)
     M["teal"] = plain("Teal panel", "#3f6870", 0.6)
     M["teal_fabric"] = fabric("Teal velvet", "#3c6a72", rough=0.7)
     M["art_abstract"] = marble("Abstract art", "#cdbba1", "#2c4f57", 0.8, 0.5)

@@ -132,6 +132,12 @@ def cameras(plan):
     add_camera("CAM_kitchen", (4.05, 6.05, 1.6), (0.4, 7.6, 1.05), lens=15, c=c)
     add_camera("CAM_patio", (9.7, -2.5, 2.0), (7.6, -0.45, 0.65), lens=20, c=c)
     add_camera("CAM_bed2", (8.4, 0.5, 1.5), (5.9, 2.6, 1.0), lens=15, c=c)
+    add_camera("CAM_master", (3.35, 3.85, 1.6), (0.9, 0.9, 1.0), lens=15, c=c)
+    add_camera("CAM_bed1", (3.2, 9.7, 1.6), (0.8, 12.6, 0.9), lens=15, c=c)
+    add_camera("CAM_prayer", (9.75, 4.75, 1.5), (11.3, 7.2, 0.9), lens=15, c=c)
+    add_camera("CAM_basin", (4.95, 9.15, 1.55), (3.95, 10.3, 1.3), lens=16, c=c)
+    add_camera("CAM_mbath", (4.05, 4.35, 1.6), (1.6, 5.35, 1.0), lens=14, c=c)
+    add_camera("CAM_lobby", (7.4, 6.0, 1.5), (9.0, 7.45, 1.15), lens=18, c=c)
     add_camera("CAM_dining", (8.7, 5.6, 1.55), (6.0, 7.4, 1.0), lens=16, c=c)
 
 

@@ -58,7 +58,12 @@
   <button class="chip" data-view="kitchen">Kitchen</button>
   <button class="chip" data-view="dining">Dining</button>
   <button class="chip" data-view="patio">Patio</button>
+  <button class="chip" data-view="master">Master</button>
+  <button class="chip" data-view="bed1">Bed 1</button>
   <button class="chip" data-view="bed2">Bed 2</button>
+  <button class="chip" data-view="prayer">Prayer</button>
+  <button class="chip" data-view="bath">Bath</button>
+  <button class="chip" data-view="entry">Entry</button>
   <button class="chip" data-view="aerial">Outside</button>
   <button class="chip" data-view="dollhouse">Dollhouse</button>
 </div>
@@ -142,7 +147,7 @@ async function load() {
       o.material = new THREE.MeshBasicMaterial({ color: 0xdfe9ec, transparent: true, opacity: 0.12, depthWrite: false, side: THREE.DoubleSide });
       o.renderOrder = 2;
     } else {
-      const map = src.map; if (map) { map.colorSpace = THREE.SRGBColorSpace; map.anisotropy = 4; }
+      const map = src.map; if (map) { map.colorSpace = THREE.SRGBColorSpace; map.anisotropy = renderer.capabilities.getMaxAnisotropy(); }
       o.material = new THREE.MeshBasicMaterial({ map });
     }
   });
@@ -298,6 +303,11 @@ const VIEWS = {
   dining:  { x: 8.6, y: 5.7, yaw: -56, pitch: -6 },
   patio:   { x: 8.25, y: 0.55, yaw: -160, pitch: -14 },
   bed2:    { x: 8.4, y: 1.0, yaw: -60, pitch: -6 },
+  master:  { x: 3.35, y: 3.85, yaw: -140, pitch: -10 },
+  bed1:    { x: 3.2, y: 9.7, yaw: -40, pitch: -8 },
+  prayer:  { x: 9.75, y: 4.75, yaw: 33, pitch: -10 },
+  bath:    { x: 4.95, y: 9.15, yaw: -45, pitch: -6 },
+  entry:   { x: 7.4, y: 6.0, yaw: 48, pitch: -6 },
 };
 function markChip(v) { document.querySelectorAll('#views .chip').forEach((c) => c.classList.toggle('on', c.dataset.view === v)); }
 document.querySelectorAll('#views .chip').forEach((c) => c.addEventListener('click', () => {

@@ -39,7 +39,7 @@ GROUPS = {
     "dining": (["F Dining"], 2048),
     "kitchen": (["F Kitchen"], 2048),
     "patio": (["F Patio"], 2048),
-    "rooms": (["F Rooms", "F Lights"], 2048),
+    "rooms": (["F Rooms", "F Lights"], 4096),
     "ground": (["@Ground"], 1024),
 }
 
@@ -327,7 +327,7 @@ def main():
         # furniture atlases are full of tiny islands: the denoiser would smear colour between
         # unrelated neighbours, so they get more samples instead
         big_islands = name in ("shell", "floors", "ceilings", "ground")
-        sc.cycles.samples = SAMPLES if big_islands else SAMPLES * 2
+        sc.cycles.samples = SAMPLES if big_islands else (SAMPLES * 2 if name == "rooms" else SAMPLES * 3)
         img = bake(ob, name, size)
         if DENOISE and big_islands:
             img = denoise(img, size)
@@ -354,7 +354,7 @@ def main():
                               export_draco_mesh_compression_level=6,
                               export_draco_position_quantization=14,
                               export_draco_texcoord_quantization=12,
-                              export_image_format="JPEG", export_jpeg_quality=86,
+                              export_image_format="JPEG", export_jpeg_quality=92,
                               export_materials="EXPORT", export_normals=False,
                               export_yup=True, export_apply=True, export_lights=False, export_cameras=False)
     log("exported", out, f"{os.path.getsize(out) / 1e6:.1f} MB")

@@ -586,8 +586,10 @@ def room_lights():
         xs = [p[0] for p in r["polygon"]]
         ys = [p[1] for p in r["polygon"]]
         cx, cy = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
-        cyl(r["name"] + " ceiling fitting", cx, cy, 2.97, 3.0, 0.18, M["led_panel"], 32)
-        area_light(r["name"] + " ceiling light", (cx, cy, 2.95), 0.35, w)
+        off = 0.9 if r["use"] in ("bedroom", "prayer") else 0.0
+        top = 2.72 if r["name"] in ("Master Bed", "C. Bed 2") else 3.0
+        cyl(r["name"] + " ceiling fitting", cx + off, cy, top - 0.03, top, 0.18, M["led_panel"], 32)
+        area_light(r["name"] + " ceiling light", (cx + off, cy, top - 0.05), 0.35, w)
     # bedside lamps glow
     for o in [o for o in bpy.data.objects if o.name.endswith(" lamp") and "bed" in o.name.lower()]:
         area_light(o.name + " light", (o.location.x, o.location.y, 0.95), 0.12, 6)
@@ -604,12 +606,17 @@ def furnish(plan):
     global C, _plan
     _plan = plan
     root = coll("Furniture")
+    def design_pass():
+        import design
+        design.apply()
     for name, fn in (("Living", living), ("Dining", dining), ("Kitchen", kitchen), ("Patio", patio),
-                     ("Rooms", bedrooms_baths), ("Lights", room_lights)):
+                     ("Rooms", bedrooms_baths), ("Design", design_pass), ("Lights", room_lights)):
         C = coll("F " + name, root)
         before = set(bpy.data.objects)
         fn()
         # anything created via modelkit lands in "Model": move it here
+        if name == "Design":
+            continue
         for o in bpy.data.objects:
             if o not in before and C not in o.users_collection:
                 link(o, C)

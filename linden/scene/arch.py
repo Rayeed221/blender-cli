@@ -150,7 +150,7 @@ def build_shell(plan, root):
     bm.to_mesh(shell.data)
     bm.free()
     shell.data.materials.clear()
-    for mat in (M["wall"], M["exterior"], M["wall_top"]):
+    for mat in (M["wall"], M["exterior"], M["wall_top"], M["wall_tile"], M["dark_wall"]):
         shell.data.materials.append(mat)
     return shell
 
@@ -180,13 +180,27 @@ def classify_shell_faces(shell, plan):
         # each corner toward it; any sample just in front of the face inside a room = interior
         cen = f.center
         samples = [cen] + [me.vertices[v].co.lerp(cen, 0.15) for v in f.vertices]
-        in_room = False
+        votes = {}
         for q in samples:
             c = q + f.normal * 0.12
-            if c.z < 3.02 and any(inside((c.x, c.y), r["polygon"]) for r in indoor):
-                in_room = True
-                break
-        f.material_index = 0 if in_room else 1
+            if c.z >= 3.02:
+                continue
+            for r in indoor:
+                if inside((c.x, c.y), r["polygon"]):
+                    votes[r["name"]] = votes.get(r["name"], 0) + 1
+                    break
+        if not votes:
+            f.material_index = 1
+            continue
+        room = max(votes, key=votes.get)
+        use = next(r["use"] for r in indoor if r["name"] == room)
+        # finishes from the design deck: marble-look tiles in kitchen + baths, dark theme in C. Bed 1
+        if use in ("bath", "kitchen"):
+            f.material_index = 3
+        elif room == "C. Bed 1":
+            f.material_index = 4
+        else:
+            f.material_index = 0
 
 
 # ---------------------------------------------------------------------- floors, ceilings, roof
@@ -202,8 +216,12 @@ def build_floors(plan, root):
         prism("Floor " + r["name"], r["polygon"], -SLAB, 0.0, M[FLOOR_MAT[r["use"]]], c)
         if r["use"] in ("patio", "outdoor"):
             continue
-        if r["name"] in ("Living", "Dining"):
-            tray_ceiling(r, H, cc)
+        if r["name"] in ("Living", "Dining", "Master Bed", "C. Bed 2"):
+            tray_ceiling(r, H, cc, linear=r["name"] in ("Living", "Dining"))
+            if r["name"] == "C. Bed 2":
+                bpy.data.objects["Ceiling C. Bed 2"].data.materials[0] = M["star_light"]
+        elif r["name"] == "C. Bed 1":
+            prism("Ceiling " + r["name"], r["polygon"], H, H + SLAB, M["star_dark"], cc)
         else:
             prism("Ceiling " + r["name"], r["polygon"], H, H + SLAB, M["ceiling"], cc)
     # thresholds under door / opening cuts
@@ -220,7 +238,7 @@ def build_floors(plan, root):
         box("Threshold " + o["name"], lo, hi, M["marble"], c)
 
 
-def tray_ceiling(r, H, cc, drop=0.28, band=0.5):
+def tray_ceiling(r, H, cc, drop=0.28, band=0.5, linear=True):
     """Perimeter false-ceiling band with a warm LED cove into a recessed centre."""
     xs = [p[0] for p in r["polygon"]]
     ys = [p[1] for p in r["polygon"]]
@@ -239,6 +257,12 @@ def tray_ceiling(r, H, cc, drop=0.28, band=0.5):
                        ("W", (ix0, iy0, low), (ix0 + e, iy1, low + 0.03)),
                        ("E", (ix1 - e, iy0, low), (ix1, iy1, low + 0.03))]:
         box(f"Cove LED {r['name']} {nm}", lo, hi, M["led"], cc)
+    # black reveal line around the tray edge (photos)
+    for nm, lo, hi in [("N", (x0, y1 - 0.03, low - 0.012), (x1, y1, low)), ("S", (x0, y0, low - 0.012), (x1, y0 + 0.03, low)),
+                       ("W", (x0, y0, low - 0.012), (x0 + 0.03, y1, low)), ("E", (x1 - 0.03, y0, low - 0.012), (x1, y1, low))]:
+        box(f"Ceiling reveal {r['name']} {nm}", lo, hi, M["black_metal"], cc)
+    if not linear:
+        return
     # linear LED profiles in the recess like the photos
     cx = (x0 + x1) / 2
     for k in (-0.6, 0.6):
