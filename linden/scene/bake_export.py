@@ -21,6 +21,7 @@ SCALE = float(argv[argv.index("--scale") + 1]) if "--scale" in argv else 1.0
 SAMPLES = int(argv[argv.index("--samples") + 1]) if "--samples" in argv else 64
 DENOISE = "--no-denoise" not in argv
 ONLY = argv[argv.index("--only") + 1].split(",") if "--only" in argv else None
+NO_EXPORT = "--no-export" in argv
 BAKE_DIR = os.path.join(ROOT, "bake")
 VIEW_DIR = os.path.join(ROOT, "viewer")
 os.makedirs(BAKE_DIR, exist_ok=True)
@@ -279,7 +280,34 @@ def colliders(furn_objs):
     return [[round(v, 3) for v in r] for r in rects]
 
 
+def silver_mirrors():
+    """A baked texture holds no reflections, so a metal mirror would bake black. For the
+    lightmaps, mirrors become a soft silvered glass: pale, slightly cool, faintly self-lit."""
+    m = bpy.data.materials.get("Mirror")
+    if not m:
+        return
+    nt = m.node_tree
+    nt.nodes.clear()
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    tc = nt.nodes.new("ShaderNodeTexCoord")
+    sep = nt.nodes.new("ShaderNodeSeparateXYZ")
+    nt.links.new(tc.outputs["Object"], sep.inputs[0])
+    ramp = nt.nodes.new("ShaderNodeValToRGB")
+    ramp.color_ramp.elements[0].color = (0.55, 0.57, 0.58, 1)
+    ramp.color_ramp.elements[1].color = (0.86, 0.87, 0.86, 1)
+    mr = nt.nodes.new("ShaderNodeMapRange")
+    mr.inputs["From Min"].default_value = 0.8
+    mr.inputs["From Max"].default_value = 2.2
+    nt.links.new(sep.outputs["Z"], mr.inputs["Value"])
+    nt.links.new(mr.outputs[0], ramp.inputs["Fac"])
+    em = nt.nodes.new("ShaderNodeEmission")
+    em.inputs["Strength"].default_value = 0.55
+    nt.links.new(ramp.outputs["Color"], em.inputs["Color"])
+    nt.links.new(em.outputs[0], out.inputs["Surface"])
+
+
 def main():
+    silver_mirrors()
     sc.cycles.samples = SAMPLES
     sc.cycles.use_denoising = False
     sc.cycles.max_bounces = 6
@@ -333,6 +361,9 @@ def main():
             img = denoise(img, size)
         path = to_display(img, name)
         export.append((ob, name, path))
+    if NO_EXPORT:
+        log("lightmaps written; export skipped")
+        return
     # glass: one mesh, plain material (viewer makes it transparent)
     gm = bpy.data.materials.new("Glass_viewer")
     gl.data.materials.clear()
