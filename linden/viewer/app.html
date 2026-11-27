@@ -43,10 +43,10 @@
 </script>
 
 <canvas id="gl"></canvas>
-<div class="brand"><div class="name">Fennrow Homes <b>•</b> The Linden</div><div class="room" id="room"></div></div>
+<div class="brand"><div class="name">Fennrow Homes <b>&bull;</b> The Linden</div><div class="room" id="room"></div></div>
 <canvas id="map" width="224" height="248" aria-label="Plan with your position"></canvas>
 <div id="stick" aria-label="Walk"><div id="knob"></div></div>
-<div class="hint" id="hint">Joystick to walk · drag to look<br>Tap the plan to jump there</div>
+<div class="hint" id="hint">Joystick to walk &middot; drag to look<br>Tap the plan to jump there</div>
 <div class="bar2" id="views">
   <button class="chip" data-view="living">Living</button>
   <button class="chip" data-view="kitchen">Kitchen</button>
@@ -58,7 +58,7 @@
 </div>
 <div class="modes">
   <button class="chip" id="roofBtn">Roof off</button>
-  <button class="chip on" id="modeBtn">Walk ▸ Orbit</button>
+  <button class="chip on" id="modeBtn">Walk &#9656; Orbit</button>
 </div>
 <div id="loading"><div class="box"><div class="t">The Linden</div><div class="bar"><i id="bar"></i></div><div class="err" id="err"></div></div></div>
 
@@ -117,7 +117,17 @@ async function load() {
   const draco = new DRACOLoader().setDecoderPath('./vendor/draco/');
   draco.setDecoderConfig({ type: 'js' });   // plain-JS decoder: works where WebAssembly is restricted
   const loader = new GLTFLoader().setDRACOLoader(draco);
-  const gltf = await loader.loadAsync('linden.glb', (e) => { if (e.total) $('bar').style.width = (100 * e.loaded / e.total) + '%'; });
+  let gltf;
+  try {
+    gltf = await loader.loadAsync('linden.glb', (e) => { if (e.total) $('bar').style.width = (100 * e.loaded / e.total) + '%'; });
+  } catch (err) {
+    // hosts that don't serve .glb get the same bytes as base64 text
+    const r = await fetch('linden.glb.b64.txt');
+    if (!r.ok) throw err;
+    $('bar').style.width = '70%';
+    const bin = Uint8Array.from(atob((await r.text()).trim()), (c) => c.charCodeAt(0));
+    gltf = await loader.parseAsync(bin.buffer, './');
+  }
   gltf.scene.traverse((o) => {
     if (!o.isMesh) return;
     if (o.name.startsWith('LM_ceilings')) roofMeshes.push(o);
@@ -261,7 +271,7 @@ function setMode(m) {
   else if (walkSaved) Object.assign(P, walkSaved);
   mode = m;
   document.body.classList.toggle('orbit', m === 'orbit');
-  $('modeBtn').textContent = m === 'walk' ? 'Walk ▸ Orbit' : 'Orbit ▸ Walk';
+  $('modeBtn').textContent = m === 'walk' ? 'Walk \u25B8 Orbit' : 'Orbit \u25B8 Walk';
   orbit.enabled = m === 'orbit';
   if (m === 'walk') { setRoof(true); camera.rotation.order = 'YXZ'; }
 }
@@ -280,7 +290,7 @@ const VIEWS = {
   living:  { x: 6.0, y: 8.0, yaw: 32, pitch: -4 },
   kitchen: { x: 3.9, y: 6.3, yaw: -68, pitch: -8 },
   dining:  { x: 8.6, y: 5.7, yaw: -56, pitch: -6 },
-  patio:   { x: 8.3, y: -0.45, yaw: -112, pitch: -10 },
+  patio:   { x: 8.25, y: 0.55, yaw: -160, pitch: -14 },
   bed2:    { x: 8.4, y: 1.0, yaw: -60, pitch: -6 },
 };
 function markChip(v) { document.querySelectorAll('#views .chip').forEach((c) => c.classList.toggle('on', c.dataset.view === v)); }
@@ -347,7 +357,7 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-load().catch((e) => { console.error(e); fail('Could not load the model: ' + e.message + (location.protocol === 'file:' ? ' — open it through a local web server, not as a file.' : '')); });
+load().catch((e) => { console.error(e); fail('Could not load the model: ' + e.message + (location.protocol === 'file:' ? ' - open it through a local web server, not as a file.' : '')); });
 // test hook for automated checks
 window.__linden = { P, collide: (x, y) => collide(x, y), get world() { return world; } };
 </script>

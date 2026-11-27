@@ -7,3 +7,5 @@ out/tests/
 out/viewer_test/
 out/frames/
 bake/
+linden.glb.b64.txt
+app.html
